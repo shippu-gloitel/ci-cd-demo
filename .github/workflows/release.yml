@@ -160,6 +160,7 @@ jobs:
 
       # # 🚀 Step 10: Run Semantic Release only for successful microservices
       - name: 🏗️ Deploy ${{ matrix.microservices.name }}
+        if: github.event.inputs.microservice == 'all' || github.event.inputs.microservice == matrix.microservices.name
         id: deploy
         run: pnpm turbo sls:${{ github.event.inputs.environment }}:build --filter={${{ matrix.microservices.path }}}
 
