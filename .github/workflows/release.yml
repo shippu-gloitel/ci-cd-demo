@@ -1,0 +1,173 @@
+# .github/workflows/release.yml
+# 📌 GitHub Actions Workflow for Microservice Deployment & Release
+# 🎯 Purpose: Deploy & release each microservice independently, even if some fail.
+
+name: ProwfitAppBackend
+
+on:
+  # 🛠 Trigger the workflow on push to `main`, version tags, and manual runs
+  # push:
+  #   branches: ['main']  # Run on push to the main branch
+  #   tags:
+  #     - 'v*.*.*'  # Run when version tags (e.g., v1.0.0) are pushed
+  #   paths:
+  #     - 'apps/winner-service/**'
+  #     - 'apps/video-service/**'
+  #     - 'apps/sync-db-service/**'
+  #     - 'apps/scoring-service/**'
+  #     - 'apps/reward-service/**'
+  #     - 'apps/payment-service/**'
+  #     - 'apps/participant-service/**'
+  #     - 'apps/notification-service/**'
+  #     - 'apps/competition-service/**'
+  #     - 'apps/auth-service/**'
+  #     - 'pnpm-lock.yaml'
+  #     - 'pnpm-workspace.yaml'
+  #     - 'packages/**'
+  #     - 'shared/**'
+
+  # 🛠️ Trigger only via GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        default: 'staging'
+        options:
+          - 'staging'
+          - 'prod'
+      microservice:
+        description: 'Microservice to deploy (leave empty for all)'
+        required: false
+        type: choice
+        default: 'all'
+        options:
+          - 'all'
+          - 'auth-service'
+          - 'competition-service'
+          - 'notification-service'
+          - 'participant-service'
+          - 'payment-service'
+          - 'reward-service'
+          - 'scoring-service'
+          - 'sync-db-service'
+          - 'video-service'
+          - 'winner-service'
+
+# ✅ Define permissions for GitHub Actions
+permissions:
+  contents: write  # Needed for pushing new tags/releases
+  issues: write  # Required to comment on issues
+  pull-requests: write  # Required to comment on pull requests
+  id-token: write  # Enables OpenID Connect for npm provenance
+
+# 👉 Global environment variables
+env:
+  PNPM_VERSION: "9.15.4" # npm install -g pnpm@${{ env.PNPM_VERSION }}
+  TURBO_VERSION: "2.5.5" # npm install -g turbo@${{ env.TURBO_VERSION }}
+  GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+  PRODUCTION_AWS_ACCESS_KEY_ID: ${{ secrets.PRODUCTION_AWS_ACCESS_KEY_ID }}
+  PRODUCTION_AWS_SECRET_ACCESS_KEY: ${{ secrets.PRODUCTION_AWS_SECRET_ACCESS_KEY }}
+  PRODUCTION_AWS_REGION: ${{ secrets.PRODUCTION_AWS_REGION }}
+  STAGING_AWS_ACCESS_KEY_ID: ${{ secrets.STAGING_AWS_ACCESS_KEY_ID }}
+  STAGING_AWS_SECRET_ACCESS_KEY: ${{ secrets.STAGING_AWS_SECRET_ACCESS_KEY }}
+  STAGING_AWS_REGION: ${{ secrets.STAGING_AWS_REGION }}
+
+# 🔥 Deployment Job: Deploy each microservice independently
+jobs:
+  deploy:
+    name: 🚀 Deploy Microservices on AWS Lambda
+    runs-on: ubuntu-latest
+    continue-on-error: true  # ✅ Ensures that if one microservice fails, others continue
+
+    strategy:
+      matrix:
+        node-version: [22.x]  # Specify the Node.js version
+        # Add environment matrix for staging/production separation
+        environment: ['prod', 'staging']
+        microservices:  # List of microservices to deploy
+          - name: auth-service
+            path: apps/auth-service
+          - name: competition-service
+            path: apps/competition-service
+          - name: notification-service
+            path: apps/notification-service
+          - name: participant-service
+            path: apps/participant-service
+          - name: payment-service
+            path: apps/payment-service
+          - name: reward-service
+            path: apps/reward-service
+          - name: scoring-service
+            path: apps/scoring-service
+          - name: sync-db-service
+            path: apps/sync-db-service
+          - name: video-service
+            path: apps/video-service
+          - name: winner-service
+            path: apps/winner-service
+
+    steps:
+      # 📥 Step 1: Checkout the repository
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      # ⚙️ Step 2: Set up Node.js environment
+      - name: ⚙️ Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}  # Use the Node.js version from the matrix
+
+      # 📦 Step 3: Cache dependencies to speed up subsequent runs
+      - name: 📦 Cache Dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store  # Cache pnpm dependencies
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}  # Unique key for cache invalidation
+          restore-keys: pnpm-${{ runner.os }}-
+
+      # 📌 Step 4: Install pnpm and Turbo globally
+      - name: 📦 Install pnpm and turbo, esbuild
+        run: |
+          npm install -g pnpm@${{ env.PNPM_VERSION }} turbo@${{ env.TURBO_VERSION }} esbuild@latest
+
+      # ✅ Step 5: Verify that all dependencies are correctly installed
+      - name: ✅ Verify Versions
+        run: |
+          node --version
+          npm --version
+          pnpm --version
+          turbo --version
+
+      # 📥 Step 6: Install project dependencies
+      - name: 📥 Install Dependencies
+        run: pnpm install --frozen-lockfile  # Ensures consistency with lock file
+
+      # 🎨 Step 7: Format code
+      - name: 🎨 Format Code
+        run: pnpm format  # Ensures code is properly formatted
+
+      # 🔍 Step 8: Lint the code to catch errors
+      - name: 🔍 Lint Code
+        run: pnpm lint  # Runs the linter to check for issues
+
+      # 🏗️ Step 9: Build the specific microservice
+      - name: 🏗️ Build ${{ matrix.microservices.name }}
+        if: github.event.inputs.microservice == 'all' || github.event.inputs.microservice == matrix.microservices.name
+        id: build
+        run: pnpm turbo build --filter={${{ matrix.microservices.path }}}
+
+      # # 🚀 Step 10: Run Semantic Release only for successful microservices
+      - name: 🏗️ Deploy ${{ matrix.microservices.name }}
+        id: deploy
+        run: pnpm turbo sls:${{ github.event.inputs.environment }}:build --filter={${{ matrix.microservices.path }}}
+
+      # # 🚀 Step 11: Run Semantic Release only for successful microservices
+      # - name: 🚀 Run Semantic Release for successful microservices
+      #   run: pnpm dlx semantic-release
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}  # Required for GitHub authentication
+
+
+
