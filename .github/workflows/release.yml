@@ -66,18 +66,18 @@ permissions:
 env:
   PNPM_VERSION: "9.15.4" # npm install -g pnpm@${{ env.PNPM_VERSION }}
   TURBO_VERSION: "2.5.5" # npm install -g turbo@${{ env.TURBO_VERSION }}
-  GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
-  PRODUCTION_AWS_ACCESS_KEY_ID: ${{ secrets.PRODUCTION_AWS_ACCESS_KEY_ID }}
-  PRODUCTION_AWS_SECRET_ACCESS_KEY: ${{ secrets.PRODUCTION_AWS_SECRET_ACCESS_KEY }}
-  PRODUCTION_AWS_REGION: ${{ secrets.PRODUCTION_AWS_REGION }}
-  STAGING_AWS_ACCESS_KEY_ID: ${{ secrets.STAGING_AWS_ACCESS_KEY_ID }}
-  STAGING_AWS_SECRET_ACCESS_KEY: ${{ secrets.STAGING_AWS_SECRET_ACCESS_KEY }}
-  STAGING_AWS_REGION: ${{ secrets.STAGING_AWS_REGION }}
+  # GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+  # PRODUCTION_AWS_ACCESS_KEY_ID: ${{ secrets.PRODUCTION_AWS_ACCESS_KEY_ID }}
+  # PRODUCTION_AWS_SECRET_ACCESS_KEY: ${{ secrets.PRODUCTION_AWS_SECRET_ACCESS_KEY }}
+  # PRODUCTION_AWS_REGION: ${{ secrets.PRODUCTION_AWS_REGION }}
+  # STAGING_AWS_ACCESS_KEY_ID: ${{ secrets.STAGING_AWS_ACCESS_KEY_ID }}
+  # STAGING_AWS_SECRET_ACCESS_KEY: ${{ secrets.STAGING_AWS_SECRET_ACCESS_KEY }}
+  # STAGING_AWS_REGION: ${{ secrets.STAGING_AWS_REGION }}
 
 # 🔥 Deployment Job: Deploy each microservice independently
 jobs:
   deploy:
-    name: 🚀 Deploy Microservices on AWS Lambda
+    name: 🚀 Deploy Microservices to ${{ github.event.inputs.environment }} on AWS Lambda
     runs-on: ubuntu-latest
     continue-on-error: true  # ✅ Ensures that if one microservice fails, others continue
 
@@ -109,6 +109,12 @@ jobs:
             path: apps/winner-service
 
     steps:
+      - name: ⛔ Skip unmatched microservices
+        if: ${{ github.event.inputs.microservice != 'all' && github.event.inputs.microservice != matrix.microservices.name }}
+        run: |
+          echo "Skipping this service: ${{ matrix.microservices.name }}"
+          exit 0
+
       # 📥 Step 1: Checkout the repository
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
@@ -158,11 +164,11 @@ jobs:
         id: build
         run: pnpm turbo build --filter={${{ matrix.microservices.path }}}
 
-      # # 🚀 Step 10: Run Semantic Release only for successful microservices
+      # 🚀 Step 10: Run Semantic Release only for successful microservices
       - name: 🏗️ Deploy ${{ matrix.microservices.name }}
         if: github.event.inputs.microservice == 'all' || github.event.inputs.microservice == matrix.microservices.name
         id: deploy
-        run: pnpm turbo sls:${{ github.event.inputs.environment }}:build --filter={${{ matrix.microservices.path }}}
+        run: pnpm turbo sls:${{ github.event.inputs.environment }}:deploy --filter={${{ matrix.microservices.path }}}
 
       # # 🚀 Step 11: Run Semantic Release only for successful microservices
       # - name: 🚀 Run Semantic Release for successful microservices
